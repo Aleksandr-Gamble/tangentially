@@ -2,7 +2,7 @@
 //! xtchd.com 
 
 use std::{fmt, collections::HashMap};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use serde::{Serialize, Deserialize};
 use serde_json;
 
 
@@ -27,6 +27,13 @@ pub struct Node<NV, PK, T> {
     /// The props field captures any props specific to the selected variant 
     pub props: T,
 }
+
+impl<NV: Serialize, PK: Serialize, T: Serialize> Node<NV, PK, T>  {
+    pub fn to_node_json(&self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::to_value(&self)
+    }
+}
+
 
 
 /// Implementing this trait on a struct will makes it ergonomic to convert it to a node 
@@ -70,7 +77,7 @@ pub trait ToNodeJSON<NV, PK, T>: ToNode<NV, PK, T> where
 {
     fn to_node_and_json(&self) -> Result<(Node<NV, PK, T>, serde_json::Value), serde_json::Error> {
         let node = self.to_node();
-        let json = serde_json::to_value(&node)?;
+        let json = node.to_node_json()?;
         Ok((node, json))
     }
 
@@ -100,6 +107,13 @@ pub struct Edge<EV, PK, T> {
     pub target: String,
     /// An arbitrary struct to capture properties for this node 
     pub props: T,
+}
+
+
+impl<EV: Serialize, PK: Serialize, T: Serialize> Edge<EV, PK, T>  {
+    pub fn to_edge_json(&self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::to_value(&self)
+    }
 }
 
 
@@ -134,7 +148,7 @@ pub trait ToEdgeJSON<EV, PK, T>: ToEdge<EV, PK, T> where
 {
     fn to_edge_and_json(&self) -> Result<(Edge<EV, PK, T>, serde_json::Value), serde_json::Error> {
         let edge = self.to_edge();
-        let json = serde_json::to_value(&edge)?;
+        let json = edge.to_edge_json()?;
         Ok((edge, json))
     }
     fn to_edge_json(&self) -> Result<serde_json::Value, serde_json::Error> {
@@ -165,35 +179,90 @@ impl Graph
         Graph{nodes, edges}
     }
 
-    pub fn add_node<NV, PK, T>(&mut self, n : &(dyn ToNodeJSON<NV, PK, T>)) -> Result<Node<NV, PK, T>, serde_json::Error> where 
+
+    pub fn add_node<NV, PK, T>(&mut self, node: &Node<NV, PK, T>) -> Result<(), serde_json::Error> where 
         NV: Serialize + fmt::Display,
         PK: Serialize + fmt::Debug, 
         T:  Serialize  
     {
-        let (node, json) = n.to_node_and_json()?;
+        let json = node.to_node_json()?;
         let collection = node.variant.to_string();
         let id = node.id.clone();
         let _x = self.nodes
             .entry(collection)
             .or_insert(HashMap::new())
             .insert(id, json);
+        Ok(())
+    }
+
+
+    pub fn add_node_from<NV, PK, T>(&mut self, n : &(dyn ToNodeJSON<NV, PK, T>)) -> Result<Node<NV, PK, T>, serde_json::Error> where 
+        NV: Serialize + fmt::Display,
+        PK: Serialize + fmt::Debug, 
+        T:  Serialize  
+    {
+        let node = n.to_node();
+        self.add_node(&node)?;
         Ok(node)
 
     }
 
-    pub fn add_edge<EV, PK, T>(&mut self, e : &(dyn ToEdgeJSON<EV, PK, T>)) -> Result<Edge<EV, PK, T>, serde_json::Error> where 
+
+    // by making this method private, the user must use source_edge_target() etc., ensuring the nodes that go with the edge are populated 
+    fn add_edge<EV, PK, T>(&mut self, edge: &Edge<EV, PK, T>) -> Result<(), serde_json::Error> where 
         EV: Serialize + fmt::Display,
         PK: Serialize + fmt::Debug, 
         T:  Serialize  
     {
-        let (edge, json) = e.to_edge_and_json()?;
+        let json = edge.to_edge_json()?;
         let collection = edge.variant.to_string();
         let id = edge.id.clone();
         let _x = self.edges
             .entry(collection)
             .or_insert(HashMap::new())
             .insert(id, json);
+        Ok(())
+    }
+
+    /*// by making this method private, the user must use source_edge_target() etc., ensuring the nodes that go with the edge are populated 
+    fn add_edge_from<EV, PK, T>(&mut self, e : &(dyn ToEdgeJSON<EV, PK, T>)) -> Result<Edge<EV, PK, T>, serde_json::Error> where 
+        EV: Serialize + fmt::Display,
+        PK: Serialize + fmt::Debug, 
+        T:  Serialize  
+    {
+        let edge = e.to_edge();
+        self.add_edge(&edge)?;
         Ok(edge)
+    }*/
+
+    
+    pub fn source_edge_target<NVS, PKS, TS, EV, ET, NVT, PKT, TT>(&mut self, n_source: &(dyn ToNode<NVS, PKS, TS>), n_target: &(dyn ToNode<NVT, PKT, TT>), edge_variant: EV, edge_props: ET)
+        -> Result<(Node<NVS, PKS, TS>, Edge<EV, (PKS, PKT), ET>, Node<NVT, PKT, TT>), serde_json::Error> 
+    where 
+        NVS: Serialize + fmt::Display,      // Node Variant, Source
+        PKS: Serialize + fmt::Debug,        // Primary Key, Source
+        TS:  Serialize,                     // property Type, Source
+        EV: Serialize + fmt::Display,       // Edge Variant
+        ET:  Serialize,                     // Edge property Type
+        NVT: Serialize + fmt::Display,      // Node Variant, Target
+        PKT: Serialize + fmt::Debug,        // Primary Key, Target
+        TT:  Serialize,                     // property Type, Target 
+    {
+        let source = n_source.to_node();
+        let target = n_target.to_node();
+        let id = format!("{:?}|{}|{:?}", &n_source.node_pk(), &edge_variant, &n_target.node_pk());
+        let edge: Edge<EV, (PKS, PKT), ET>  = Edge{
+            variant: edge_variant,
+            variant_pk: (n_source.node_pk(), n_target.node_pk()),
+            id, 
+            source: n_source.node_id(),
+            target: n_target.node_id(),
+            props: edge_props,
+        };
+        self.add_node(&source)?;
+        self.add_edge(&edge)?;
+        self.add_node(&target)?;
+        Ok((source, edge, target))
     }
 }
 
