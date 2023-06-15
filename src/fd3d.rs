@@ -267,8 +267,16 @@ impl Graph
 }
 
 
+
+
 /// this trait simply means you define an implementation of to_graph, which must return a Graph struct 
 pub trait ToGraph {
-    fn to_graph(&self) -> Graph;
+    /// Define how an existing graph should have content added to it from this struct 
+    fn mut_graph(&self, graph: &mut Graph) -> Result<(), serde_json::Error>;
+    fn to_graph(&self) -> Result<Graph, serde_json::Error> {
+        let mut g = Graph::new();
+        self.mut_graph(&mut g)?;
+        Ok(g)
+    }
 }
 
