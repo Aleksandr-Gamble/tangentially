@@ -280,3 +280,14 @@ pub trait ToGraph {
     }
 }
 
+
+/// If a struct implements ToGraph, you may wish for it to also implement FocusNode.  
+/// The idea here is that if you display a (sub)graph for the user to see,
+/// you may wish to zoom to a particular node as the 'starting point'
+/// or other node of interest. 
+/// The ZoomNode trait allows that functionality by providing a variant and variant_pk,
+/// much like the ToNode trait 
+pub trait ZoomNode<EV: fmt::Display, PK: fmt::Debug>: ToGraph {
+    /// EV is the variant, PK is the variant_pk
+    fn zoom_to(&self) -> Option<(EV, PK)>;
+}
