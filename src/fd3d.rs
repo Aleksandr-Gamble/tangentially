@@ -290,4 +290,11 @@ pub trait ToGraph {
 pub trait ZoomNode<EV: fmt::Display, PK: fmt::Debug>: ToGraph {
     /// EV is the variant, PK is the variant_pk
     fn zoom_to(&self) -> Option<(EV, PK)>;
+    /// the graph3d.js :: zoomToId() function expects a node id = 'variant|PK'
+    fn zoom_to_id(&self) -> Option<String> {
+        match self.zoom_to() {
+            Some((variant, pk)) => Some(format!("{}|{:?}", variant, pk)),
+            None => None,
+        }
+    }
 }
